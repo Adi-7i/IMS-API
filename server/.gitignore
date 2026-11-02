@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Database files — keep ALL SQLite files out of git
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Environment — never commit secrets
+.env
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

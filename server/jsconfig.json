@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "#config": ["./src/config/index.js"],
+      "#db": ["./src/db/connection.js"],
+      "#utils/*": ["./src/utils/*.js"],
+      "#middleware/*": ["./src/middleware/*.js"],
+      "#repositories/*": ["./src/repositories/*.js"],
+      "#services/*": ["./src/services/*.js"],
+      "#schemas/*": ["./src/schemas/*.js"]
+    }
+  },
+  "include": ["src/**/*.js"],
+  "exclude": ["node_modules", "tests"]
+}
