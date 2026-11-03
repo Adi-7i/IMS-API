@@ -1,3 +1,5 @@
+import { toast } from 'sonner'
+import { useMutation } from '@/hooks/use-mutation'
 import { useState } from 'react'
 import {
   Plus,
@@ -13,7 +15,7 @@ import { categoryService } from '@/services/category.service'
 import { useDataState } from '@/hooks/use-data-state'
 import { usePagination } from '@/hooks/use-pagination'
 import { PageHeader } from '@/components/shared/page-header'
-import { DisconnectedState } from '@/components/shared/disconnected-state'
+import { ErrorState } from '@/components/shared/error-state'
 import { EmptyState } from '@/components/shared/empty-state'
 import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
@@ -44,9 +46,11 @@ import type { Product, ProductSortBy } from '@/types/product'
 export function ProductsPage() {
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
-  const [selectedStatus, setSelectedStatus] = useState<string>('all')
+  const [selectedStatus, setSelectedStatus] = useState<string>('active')
+  const [availability, setAvailability] = useState<string>('all')
+  const archive = useMutation()
   const [sortBy, setSortBy] = useState<ProductSortBy>('created_at')
-  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('DESC')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const { page, setPage } = usePagination(1, 20)
 
@@ -56,8 +60,8 @@ export function ProductsPage() {
   const [archiveTarget, setArchiveTarget] = useState<Product | null>(null)
 
   // Fetch categories for filtering
-  const { data: categories, isDisconnected: categoriesDisconnected } = useDataState(
-    () => categoryService.getCategories(),
+  const { data: categories, error: categoriesError, reload: reloadCategories } = useDataState(
+    (signal) => categoryService.getCategories(signal),
     [],
   )
 
@@ -65,10 +69,11 @@ export function ProductsPage() {
   const {
     data: productData,
     isLoading,
-    isDisconnected,
+    error,
+    isError,
     reload,
   } = useDataState(
-    () =>
+    (signal) =>
       productService.getProducts({
         page,
         limit: 20,
@@ -80,18 +85,19 @@ export function ProductsPage() {
             : selectedStatus === 'inactive'
               ? 0
               : undefined,
+        availability: availability === 'in_stock' || availability === 'low_stock' || availability === 'out_of_stock' ? availability : undefined,
         sort_by: sortBy,
         sort_dir: sortDir,
-      }),
-    [page, search, selectedCategory, selectedStatus, sortBy, sortDir],
+      }, signal),
+    [page, search, selectedCategory, selectedStatus, availability, sortBy, sortDir],
   )
 
   const products = productData?.data ?? []
   const pagination = productData?.pagination
 
-  const handleEdit = (prod: Product) => {
-    setSelectedProduct(prod)
-    setIsFormOpen(true)
+  const handleEdit = async (prod: Product) => {
+    try { setSelectedProduct(await productService.getProductById(prod.id)); setIsFormOpen(true) }
+    catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to load product') }
   }
 
   const handleOpenCreate = () => {
@@ -125,16 +131,9 @@ export function ProductsPage() {
         }
       />
 
-      {/* Disconnected Architecture Banner */}
-      {isDisconnected && (
-        <DisconnectedState
-          title="Product Catalog Sync Pending (Phase 3)"
-          description="In accordance with RetailOps Lite specifications, synthetic mock items are not displayed. Live catalog sync from GET /api/products will connect in Phase 3."
-          endpoint="GET /api/products"
-          variant="inline"
-        />
-      )}
 
+      {categoriesError && <ErrorState title="Unable to load categories" description={categoriesError.message} onRetry={() => void reloadCategories()} />}
+      {archive.errors.form && <p role="alert" className="text-sm text-destructive">{archive.errors.form}</p>}
       {/* Filter and Search Bar */}
       <Card>
         <CardContent className="p-4">
@@ -195,11 +194,20 @@ export function ProductsPage() {
                 </SelectContent>
               </Select>
 
+              <Select value={availability} onValueChange={value => { setAvailability(value); setPage(1) }}>
+                <SelectTrigger className="w-[160px] text-xs h-9"><SelectValue placeholder="Availability" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Availability</SelectItem><SelectItem value="in_stock">In Stock</SelectItem>
+                  <SelectItem value="low_stock">Low Stock</SelectItem><SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                </SelectContent>
+              </Select>
               {/* Sort Selector */}
               <Select
                 value={`${sortBy}-${sortDir}`}
                 onValueChange={(val) => {
-                  const [field, dir] = val.split('-') as [ProductSortBy, 'ASC' | 'DESC']
+                  const [field, dir] = val.split('-')
+                  if (field !== 'name' && field !== 'price_paise' && field !== 'stock_quantity' && field !== 'created_at') return
+                  if (dir !== 'asc' && dir !== 'desc') return
                   setSortBy(field)
                   setSortDir(dir)
                   setPage(1)
@@ -209,12 +217,12 @@ export function ProductsPage() {
                   <SelectValue placeholder="Sort Order" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="created_at-DESC">Newest First</SelectItem>
-                  <SelectItem value="name-ASC">Name (A-Z)</SelectItem>
-                  <SelectItem value="price_paise-ASC">Price (Low to High)</SelectItem>
-                  <SelectItem value="price_paise-DESC">Price (High to Low)</SelectItem>
-                  <SelectItem value="stock_quantity-ASC">Stock (Low to High)</SelectItem>
-                  <SelectItem value="stock_quantity-DESC">Stock (High to Low)</SelectItem>
+                  <SelectItem value="created_at-desc">Newest First</SelectItem>
+                  <SelectItem value="name-asc">Name (A-Z)</SelectItem>
+                  <SelectItem value="price_paise-asc">Price (Low to High)</SelectItem>
+                  <SelectItem value="price_paise-desc">Price (High to Low)</SelectItem>
+                  <SelectItem value="stock_quantity-asc">Stock (Low to High)</SelectItem>
+                  <SelectItem value="stock_quantity-desc">Stock (High to Low)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -227,13 +235,8 @@ export function ProductsPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <LoadingSkeleton rows={6} />
-          ) : isDisconnected ? (
-            <DisconnectedState
-              title="Product Catalog Integration Pending"
-              description="Real catalog data will be populated directly from GET /api/products once Phase 3 live connection is initiated."
-              endpoint="GET /api/products"
-              variant="table"
-            />
+          ) : isError ? (
+            <ErrorState description={error?.message} onRetry={() => void reload()} />
           ) : products.length === 0 ? (
             <EmptyState
               title="No products found"
@@ -251,7 +254,6 @@ export function ProductsPage() {
                       <TableHead>Product & SKU</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead className="text-right">Price</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
                       <TableHead className="text-right">Stock</TableHead>
                       <TableHead className="text-right">Threshold</TableHead>
                       <TableHead className="text-center">Status</TableHead>
@@ -274,11 +276,6 @@ export function ProductsPage() {
                           </TableCell>
                           <TableCell className="text-right font-medium">
                             {formatPaise(product.price_paise)}
-                          </TableCell>
-                          <TableCell className="text-right text-xs text-muted-foreground">
-                            {product.cost_price_paise !== null
-                              ? formatPaise(product.cost_price_paise)
-                              : '—'}
                           </TableCell>
                           <TableCell className="text-right">
                             <span
@@ -310,7 +307,7 @@ export function ProductsPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => handleEdit(product)}
+                                onClick={() => void handleEdit(product)}
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                               >
                                 <Edit2 className="h-4 w-4" />
@@ -319,6 +316,7 @@ export function ProductsPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                disabled={product.is_active === 0 || archive.pending}
                                 onClick={() => setArchiveTarget(product)}
                                 className="h-8 w-8 text-muted-foreground hover:text-destructive"
                               >
@@ -352,13 +350,14 @@ export function ProductsPage() {
         onOpenChange={setIsFormOpen}
         product={selectedProduct}
         categories={categories ?? []}
-        categoriesDisconnected={categoriesDisconnected}
+        categoriesError={categoriesError?.message}
+        onRetryCategories={() => void reloadCategories()}
       />
 
       {/* Archive Confirmation Dialog */}
       <ConfirmDialog
         open={Boolean(archiveTarget)}
-        onOpenChange={(open) => !open && setArchiveTarget(null)}
+        onOpenChange={(open) => { if (!open && !archive.pending) setArchiveTarget(null) }}
         title="Archive Product"
         description={
           <>
@@ -370,8 +369,12 @@ export function ProductsPage() {
         }
         confirmLabel="Archive Product"
         variant="destructive"
-        disabled
-        onConfirm={() => setArchiveTarget(null)}
+        isLoading={archive.pending}
+        onConfirm={async () => {
+          if (!archiveTarget) return
+          const saved = await archive.run(archiveTarget.id, () => productService.archiveProduct(archiveTarget.id))
+          if (saved) { toast.success('Product archived'); setArchiveTarget(null) }
+        }}
       />
     </div>
   )

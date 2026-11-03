@@ -13,7 +13,6 @@ describe('Form Validators (Zod)', () => {
         sku: 'TSHIRT-001',
         category_id: 1,
         price_rupees: 499.0,
-        cost_price_rupees: 250.0,
         stock_quantity: 50,
         low_stock_threshold: 10,
       })
@@ -30,7 +29,7 @@ describe('Form Validators (Zod)', () => {
       expect(result.success).toBe(false)
     })
 
-    it('rejects negative or zero price', () => {
+    it('rejects negative price', () => {
       const result = createProductSchema.safeParse({
         name: 'Product A',
         sku: 'SKU-01',
@@ -45,11 +44,9 @@ describe('Form Validators (Zod)', () => {
     it('validates a correct multi-item order', () => {
       const result = createOrderSchema.safeParse({
         customer_name: 'Anita Roy',
-        customer_email: 'anita@example.com',
-        customer_phone: '9876543210',
         items: [
-          { product_id: 1, quantity: 2, unit_price_rupees: 299 },
-          { product_id: 2, quantity: 1, unit_price_rupees: 599 },
+          { product_id: 1, quantity: 2 },
+          { product_id: 2, quantity: 1 },
         ],
       })
       expect(result.success).toBe(true)
@@ -69,7 +66,7 @@ describe('Form Validators (Zod)', () => {
       expect(
         stockAdjustmentSchema.safeParse({
           product_id: 1,
-          quantity_change: 10,
+          delta: 10,
           reason: 'Restock shipment',
         }).success,
       ).toBe(true)
@@ -77,7 +74,7 @@ describe('Form Validators (Zod)', () => {
       expect(
         stockAdjustmentSchema.safeParse({
           product_id: 1,
-          quantity_change: -5,
+          delta: -5,
           reason: 'Damaged items',
         }).success,
       ).toBe(true)
@@ -86,9 +83,19 @@ describe('Form Validators (Zod)', () => {
     it('rejects zero adjustment', () => {
       const result = stockAdjustmentSchema.safeParse({
         product_id: 1,
-        quantity_change: 0,
+        delta: 0,
       })
       expect(result.success).toBe(false)
     })
   })
 })
+
+ it('requires an audit reason and rejects duplicate products', () => {
+  expect(stockAdjustmentSchema.safeParse({ product_id: 1, delta: 1, reason: ' ' }).success).toBe(false)
+  expect(createOrderSchema.safeParse({ customer_name: 'Test', items: [{ product_id: 1, quantity: 1 }, { product_id: 1, quantity: 2 }] }).success).toBe(false)
+ })
+ it('accepts zero price supported by the backend, but rejects extra decimal places', () => {
+  const product = { name: 'Test', sku: 'TEST', category_id: 1 }
+  expect(createProductSchema.safeParse({ ...product, price_rupees: '0.00' }).success).toBe(true)
+  expect(createProductSchema.safeParse({ ...product, price_rupees: '1.001' }).success).toBe(false)
+ })

@@ -1,3 +1,4 @@
+import { Input } from '@/components/ui/input'
 import { useState } from 'react'
 import {
   Boxes,
@@ -12,7 +13,7 @@ import { productService } from '@/services/product.service'
 import { useDataState } from '@/hooks/use-data-state'
 import { usePagination } from '@/hooks/use-pagination'
 import { PageHeader } from '@/components/shared/page-header'
-import { DisconnectedState } from '@/components/shared/disconnected-state'
+import { ErrorState } from '@/components/shared/error-state'
 import { EmptyState } from '@/components/shared/empty-state'
 import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
 import { DataTablePagination } from '@/components/shared/data-table-pagination'
@@ -37,10 +38,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { MovementType } from '@/types/inventory'
+import { isMovementType } from '@/lib/status'
 import type { Product } from '@/types/product'
 
 export function InventoryPage() {
+  const [lowStockPage, setLowStockPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [movementProduct, setMovementProduct] = useState('all')
   const [activeTab, setActiveTab] = useState<'low-stock' | 'movements'>('low-stock')
   const [selectedMovementType, setSelectedMovementType] = useState<string>('all')
   const [isAdjustmentOpen, setIsAdjustmentOpen] = useState(false)
@@ -49,39 +53,42 @@ export function InventoryPage() {
   const { page, setPage } = usePagination(1, 20)
 
   // Fetch product list for adjustment dropdown
-  const { data: productData } = useDataState(() => productService.getProducts({ limit: 100 }), [])
-  const products = productData?.data ?? []
+  const { data: productData, error: productsError, isLoading: productsLoading, reload: reloadProducts } = useDataState((signal) => productService.getAllActive(signal), [])
+  const products = productData ?? []
+  const visibleProducts = products.filter(product => `${product.name} ${product.sku}`.toLowerCase().includes(search.toLowerCase()))
 
   // Fetch low-stock products
   const {
-    data: lowStockProducts,
+    data: lowStockData,
     isLoading: isLowStockLoading,
-    isDisconnected: isLowStockDisconnected,
+    error: lowStockError,
+    isError: isLowStockError,
     reload: reloadLowStock,
   } = useDataState(
-    () => inventoryService.getLowStock({ include_out_of_stock: 'true' }),
-    [],
+    (signal) => inventoryService.getLowStock({ page: lowStockPage, limit: 20, include_out_of_stock: 'true' }, signal),
+    [lowStockPage],
   )
 
   // Fetch movements
   const {
     data: movementData,
     isLoading: isMovementsLoading,
-    isDisconnected: isMovementsDisconnected,
+    error: movementsError,
+    isError: isMovementsError,
     reload: reloadMovements,
   } = useDataState(
-    () =>
+    (signal) =>
       inventoryService.getMovements({
         page,
         limit: 20,
-        movement_type:
-          selectedMovementType !== 'all'
-            ? (selectedMovementType as MovementType)
-            : undefined,
-      }),
-    [page, selectedMovementType],
+        product_id: movementProduct === 'all' ? undefined : Number(movementProduct),
+        type:
+          isMovementType(selectedMovementType) ? selectedMovementType : undefined,
+      }, signal),
+    [page, selectedMovementType, movementProduct],
   )
 
+  const lowStockProducts = lowStockData?.data ?? []
   const movements = movementData?.data ?? []
   const movementsPagination = movementData?.pagination
 
@@ -91,6 +98,7 @@ export function InventoryPage() {
   }
 
   const handleRefresh = () => {
+    void reloadProducts()
     if (activeTab === 'low-stock') {
       void reloadLowStock()
     } else {
@@ -130,31 +138,26 @@ export function InventoryPage() {
         }
       />
 
-      {/* Disconnected Architecture Banner */}
-      {(isLowStockDisconnected || isMovementsDisconnected) && (
-        <DisconnectedState
-          title="Inventory Services Sync Pending (Phase 3)"
-          description="In accordance with RetailOps Lite requirements, synthetic stock records are strictly avoided. Live inventory contracts connect in Phase 3."
-          endpoint={
-            activeTab === 'low-stock'
-              ? 'GET /api/inventory/low-stock'
-              : 'GET /api/inventory/movements'
-          }
-          variant="inline"
-        />
-      )}
 
+      <Card><CardContent className="space-y-3 p-4">
+        <Input aria-label="Search inventory" placeholder="Search inventory by name or SKU" value={search} onChange={e => setSearch(e.target.value)} />
+        {productsLoading ? <LoadingSkeleton rows={2} /> : productsError ? <ErrorState description={productsError.message} onRetry={() => void reloadProducts()} /> : products.length === 0 ? <p>No active products.</p> : (
+          <div className="max-h-64 overflow-auto"><Table><TableHeader><TableRow><TableHead>Product / SKU</TableHead><TableHead>Stock</TableHead><TableHead>Availability</TableHead><TableHead>Action</TableHead></TableRow></TableHeader><TableBody>
+            {visibleProducts.map(p => <TableRow key={p.id}><TableCell>{p.name} ({p.sku})</TableCell><TableCell>{p.stock_quantity}</TableCell><TableCell>{p.stock_quantity === 0 ? 'Out of stock' : p.stock_quantity <= p.low_stock_threshold ? 'Low stock' : 'In stock'}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => handleOpenAdjustment(p)}>Adjust</Button></TableCell></TableRow>)}
+          </TableBody></Table>{visibleProducts.length === 0 && <p className="p-4 text-sm text-muted-foreground">No products match this search.</p>}</div>
+        )}
+      </CardContent></Card>
       {/* Tabs Layout */}
       <Tabs
         value={activeTab}
-        onValueChange={(val) => setActiveTab(val as 'low-stock' | 'movements')}
+        onValueChange={(val) => { if (val === 'low-stock' || val === 'movements') setActiveTab(val) }}
       >
         <TabsList className="grid grid-cols-2 w-full max-w-md h-10">
-          <TabsTrigger value="low-stock" className="gap-2 text-xs">
+          <TabsTrigger value="low-stock" className="gap-1 text-[10px] sm:gap-2 sm:text-xs">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
             Stock Health & Alerts
           </TabsTrigger>
-          <TabsTrigger value="movements" className="gap-2 text-xs">
+          <TabsTrigger value="movements" className="gap-1 text-[10px] sm:gap-2 sm:text-xs">
             <History className="h-4 w-4 text-primary" />
             Movement Audit Trail
           </TabsTrigger>
@@ -175,14 +178,9 @@ export function InventoryPage() {
             <CardContent className="p-0">
               {isLowStockLoading ? (
                 <LoadingSkeleton rows={5} />
-              ) : isLowStockDisconnected ? (
-                <DisconnectedState
-                  title="Stock Alerts Integration Pending"
-                  description="Real inventory levels will sync from GET /api/inventory/low-stock in Phase 3."
-                  endpoint="GET /api/inventory/low-stock"
-                  variant="table"
-                />
-              ) : !lowStockProducts || lowStockProducts.length === 0 ? (
+              ) : isLowStockError ? (
+                <ErrorState description={lowStockError?.message} onRetry={() => void reloadLowStock()} />
+              ) : lowStockProducts.length === 0 ? (
                 <EmptyState
                   title="No low stock items"
                   description="All inventory levels are currently above configured safety thresholds."
@@ -245,6 +243,7 @@ export function InventoryPage() {
                   </Table>
                 </div>
               )}
+              {lowStockData && <div className="p-4"><DataTablePagination pagination={lowStockData.pagination} onPageChange={setLowStockPage} /></div>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -254,10 +253,14 @@ export function InventoryPage() {
           {/* Movement Type Filter */}
           <Card>
             <CardContent className="p-4">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="text-xs font-medium text-muted-foreground">
                   Filter by Movement Type:
                 </span>
+                <Select value={movementProduct} onValueChange={value => { setMovementProduct(value); setPage(1) }}>
+                  <SelectTrigger className="w-[200px]"><SelectValue placeholder="Product" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">All products</SelectItem>{products.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name} ({p.sku})</SelectItem>)}</SelectContent>
+                </Select>
                 <Select
                   value={selectedMovementType}
                   onValueChange={(val) => {
@@ -287,13 +290,8 @@ export function InventoryPage() {
             <CardContent className="p-0">
               {isMovementsLoading ? (
                 <LoadingSkeleton rows={6} />
-              ) : isMovementsDisconnected ? (
-                <DisconnectedState
-                  title="Movement Audit Ledger Pending"
-                  description="Real immutable movement records will sync from GET /api/inventory/movements in Phase 3."
-                  endpoint="GET /api/inventory/movements"
-                  variant="table"
-                />
+              ) : isMovementsError ? (
+                <ErrorState description={movementsError?.message} onRetry={() => void reloadMovements()} />
               ) : movements.length === 0 ? (
                 <EmptyState
                   title="No stock movements recorded"
@@ -310,7 +308,7 @@ export function InventoryPage() {
                           <TableHead>Product / SKU</TableHead>
                           <TableHead>Type</TableHead>
                           <TableHead className="text-right">Quantity</TableHead>
-                          <TableHead>Reason / Notes</TableHead>
+                          <TableHead>Stock Before → After</TableHead><TableHead>Related Order</TableHead><TableHead>Reason / Notes</TableHead>
                           <TableHead className="text-right">Timestamp</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -332,8 +330,9 @@ export function InventoryPage() {
                               <MovementTypeBadge type={m.movement_type} />
                             </TableCell>
                             <TableCell className="text-right font-mono font-semibold">
-                              {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
+                              {m.quantity_delta > 0 ? `+${m.quantity_delta}` : m.quantity_delta}
                             </TableCell>
+                            <TableCell>{m.previous_stock} → {m.resulting_stock}</TableCell><TableCell>{m.order_number ?? (m.order_id ? `Order #${m.order_id}` : '—')}</TableCell>
                             <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
                               {m.reason || '—'}
                             </TableCell>
@@ -365,6 +364,9 @@ export function InventoryPage() {
         onOpenChange={setIsAdjustmentOpen}
         product={targetProduct}
         products={products}
+        productsError={productsError?.message}
+        productsLoading={productsLoading}
+        onRetryProducts={() => void reloadProducts()}
       />
     </div>
   )

@@ -60,3 +60,26 @@ describe('useDataState hook', () => {
     expect(result.current.error?.message).toBe('500 Internal Server Error')
   })
 })
+
+it('ignores stale responses after the query changes', async () => {
+  const { act } = await import('@testing-library/react')
+  let resolveOld: (value: string) => void = () => {}
+  const old = new Promise<string>(resolve => { resolveOld = resolve })
+  const { result, rerender } = renderHook(({ query }) => useDataState(() => query === 'old' ? old : Promise.resolve('new'), [query]), { initialProps: { query: 'old' } })
+  rerender({ query: 'new' })
+  await waitFor(() => expect(result.current.data).toBe('new'))
+  await act(async () => { resolveOld('old'); await old })
+  expect(result.current.data).toBe('new')
+})
+
+it('refetches after a confirmed business mutation and shows errors separately from empty data', async () => {
+  const { act } = await import('@testing-library/react')
+  const { notifyDataChanged } = await import('@/lib/data-events')
+  let calls = 0
+  const { result } = renderHook(() => useDataState(async () => { calls++; if (calls > 1) throw new Error('Disconnected'); return [] }))
+  await waitFor(() => expect(result.current.isEmpty).toBe(true))
+  act(() => notifyDataChanged())
+  await waitFor(() => expect(result.current.isError).toBe(true))
+  expect(result.current.data).toBeNull()
+  expect(result.current.error?.message).toBe('Disconnected')
+})

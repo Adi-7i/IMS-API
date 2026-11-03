@@ -1,3 +1,5 @@
+> Phase 3 integration is implemented. This historical handoff is superseded by [INTEGRATION_REPORT.md](INTEGRATION_REPORT.md); use that report and the current source for API contracts, verification results, and startup commands.
+
 # RetailOps Lite — Frontend Integration & Backend Handoff Guide
 
 > **Phase 2 Handoff Document**  

@@ -9,6 +9,11 @@
  */
 export function makeCategoryRepository(db) {
   return {
+    /** @param {string} name */
+    create(name) {
+      const result = db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
+      return /** @type {{id: number, name: string, created_at: string}} */ (db.prepare('SELECT * FROM categories WHERE id = ?').get(result.lastInsertRowid));
+    },
     /** @returns {Array<{id: number, name: string, created_at: string}>} */
     findAll() {
       return /** @type {any[]} */ (db.prepare('SELECT id, name, created_at FROM categories ORDER BY name ASC').all());

@@ -1,3 +1,5 @@
+> Phase 3 integration is implemented. This document preserves the Phase 2 handoff for historical context; its activation checklist and contract table are superseded by [`../INTEGRATION_REPORT.md`](../INTEGRATION_REPORT.md). Live services use the inspected backend source, not the contracts described below.
+
 # RetailOps Lite — Frontend Engineering Handoff Document (Phase 2 -> Phase 3)
 
 ## 1. Executive Summary

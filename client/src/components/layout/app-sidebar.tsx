@@ -93,9 +93,9 @@ export function AppSidebar({ className, onItemClick }: AppSidebarProps) {
       <div className="border-t p-4">
         <div className="rounded-xl border bg-muted/40 p-3.5 text-xs">
           <div className="flex items-center justify-between">
-            <span className="font-medium text-foreground">Architecture</span>
+            <span className="font-medium text-foreground">Retail Operations</span>
             <Badge variant="outline" className="text-[10px] bg-background">
-              Phase 2
+              RetailOps Lite
             </Badge>
           </div>
           <div className="mt-2.5 flex items-center gap-2 text-muted-foreground">
@@ -103,10 +103,10 @@ export function AppSidebar({ className, onItemClick }: AppSidebarProps) {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            <span className="text-[11px]">Backend API on :3000</span>
+            <span className="text-[11px]">Inventory & Orders</span>
           </div>
           <p className="mt-1 text-[10px] text-muted-foreground leading-normal">
-            Contracts verified. Live sync scheduled for Phase 3.
+            Connected inventory and order management.
           </p>
         </div>
       </div>
