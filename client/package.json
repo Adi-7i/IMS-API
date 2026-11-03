@@ -10,7 +10,9 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:integration": "vitest run tests/live-stack.test.mjs",
+    "test:browser": "node tests/browser-check.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

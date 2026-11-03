@@ -1,58 +1,14 @@
-import { apiClient, NotConnectedError } from '@/lib/api-client'
-import { generateIdempotencyKey } from '@/lib/idempotency'
-import type { ApiResponse, PaginatedResponse } from '@/types/api'
-import type {
-  OrderDetail,
-  OrderListItem,
-  OrderQueryParams,
-  OrderStatus,
-  CreateOrderInput,
-} from '@/types/order'
-
+import { apiClient } from '@/lib/api-client'
+import { envelope, paginated, orderSchema, orderDetailSchema } from '@/lib/api-schemas'
+import { notifyDataChanged } from '@/lib/data-events'
+import type { OrderQueryParams, OrderStatus, CreateOrderInput } from '@/types/order'
 export const orderService = {
-  async getOrders(params?: OrderQueryParams): Promise<PaginatedResponse<OrderListItem>> {
-    try {
-      return await apiClient.get<PaginatedResponse<OrderListItem>>('/orders', {
-        params: params as Record<string, string | number | undefined>,
-      })
-    } catch (err) {
-      if (err instanceof NotConnectedError) throw err
-      throw err
-    }
+  getOrders: (params?: OrderQueryParams, signal?: AbortSignal) => apiClient.get('/orders', paginated(orderSchema), { params: { ...params }, signal }),
+  async getOrderById(id: number, signal?: AbortSignal) { return (await apiClient.get(`/orders/${id}`, envelope(orderDetailSchema), { signal })).data },
+  async createOrder(data: CreateOrderInput, idempotencyKey: string) {
+    const response = await apiClient.post('/orders', data, envelope(orderDetailSchema), { idempotencyKey }); notifyDataChanged(); return response.data
   },
-
-  async getOrderById(id: number): Promise<OrderDetail> {
-    try {
-      const response = await apiClient.get<ApiResponse<OrderDetail>>(`/orders/${id}`)
-      return response.data
-    } catch (err) {
-      if (err instanceof NotConnectedError) throw err
-      throw err
-    }
-  },
-
-  async createOrder(data: CreateOrderInput, idempotencyKey?: string): Promise<OrderDetail> {
-    try {
-      const key = idempotencyKey || generateIdempotencyKey()
-      const response = await apiClient.post<ApiResponse<OrderDetail>>('/orders', data, {
-        idempotencyKey: key,
-      })
-      return response.data
-    } catch (err) {
-      if (err instanceof NotConnectedError) throw err
-      throw err
-    }
-  },
-
-  async updateStatus(id: number, status: OrderStatus): Promise<OrderDetail> {
-    try {
-      const response = await apiClient.patch<ApiResponse<OrderDetail>>(`/orders/${id}/status`, {
-        status,
-      })
-      return response.data
-    } catch (err) {
-      if (err instanceof NotConnectedError) throw err
-      throw err
-    }
+  async updateStatus(id: number, status: OrderStatus) {
+    const response = await apiClient.patch(`/orders/${id}/status`, { status }, envelope(orderDetailSchema)); notifyDataChanged(); return response.data
   },
 }

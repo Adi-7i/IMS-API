@@ -13,11 +13,11 @@ export function DataTablePagination({
   onPageChange,
   disabled = false,
 }: DataTablePaginationProps) {
-  if (!pagination || pagination.total_pages <= 1) {
+  if (!pagination || pagination.totalPages <= 1) {
     return null
   }
 
-  const { page, total, limit, total_pages } = pagination
+  const { page, total, limit, totalPages } = pagination
   const start = (page - 1) * limit + 1
   const end = Math.min(page * limit, total)
 
@@ -30,7 +30,7 @@ export function DataTablePagination({
       </div>
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground mr-2">
-          Page {page} of {total_pages}
+          Page {page} of {totalPages}
         </span>
         <Button
           variant="outline"
@@ -46,7 +46,7 @@ export function DataTablePagination({
           variant="outline"
           size="sm"
           onClick={() => onPageChange(page + 1)}
-          disabled={page >= total_pages || disabled}
+          disabled={page >= totalPages || disabled}
           className="h-8 w-8 p-0"
         >
           <ChevronRight className="h-4 w-4" />

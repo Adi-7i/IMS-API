@@ -18,7 +18,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { stockAdjustmentSchema } from '@/lib/validators'
-import { DisconnectedState } from '@/components/shared/disconnected-state'
+import { inventoryService } from '@/services/inventory.service'
+import { useMutation } from '@/hooks/use-mutation'
+import { toast } from 'sonner'
 import type { Product } from '@/types/product'
 
 interface StockAdjustmentDialogProps {
@@ -26,6 +28,9 @@ interface StockAdjustmentDialogProps {
   onOpenChange: (open: boolean) => void
   product?: Product | null
   products: Product[]
+  productsError?: string
+  productsLoading: boolean
+  onRetryProducts: () => void
 }
 
 export function StockAdjustmentDialog({
@@ -33,12 +38,16 @@ export function StockAdjustmentDialog({
   onOpenChange,
   product,
   products,
+  productsError,
+  productsLoading,
+  onRetryProducts,
 }: StockAdjustmentDialogProps) {
   const [productId, setProductId] = useState<string>('')
   const [direction, setDirection] = useState<'increase' | 'decrease'>('increase')
   const [quantity, setQuantity] = useState<string>('1')
   const [reason, setReason] = useState<string>('')
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const mutation = useMutation()
+  const { errors, setErrors } = mutation
 
   useEffect(() => {
     if (product) {
@@ -50,17 +59,18 @@ export function StockAdjustmentDialog({
     setQuantity('1')
     setReason('')
     setErrors({})
-  }, [product, open])
+  }, [product, open, setErrors])
 
-  const handleValidateOnly = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const numericQty = Number(quantity)
-    const signedQty = direction === 'decrease' ? -Math.abs(numericQty) : Math.abs(numericQty)
+    if (!Number.isSafeInteger(numericQty) || numericQty <= 0) { setErrors({ delta: 'Enter a positive whole quantity' }); return }
+    const signedQty = direction === 'decrease' ? -numericQty : numericQty
 
     const result = stockAdjustmentSchema.safeParse({
       product_id: Number(productId),
-      quantity_change: signedQty,
-      reason: reason.trim() || undefined,
+      delta: signedQty,
+      reason: reason.trim(),
     })
 
     if (!result.success) {
@@ -69,15 +79,18 @@ export function StockAdjustmentDialog({
         fieldErrors[String(issue.path[0])] = issue.message
       })
       setErrors(fieldErrors)
-    } else {
-      setErrors({})
+      return
     }
+    const selected = products.find(p => p.id === result.data.product_id)
+    if (!mutation.uncertain && (!selected || selected.stock_quantity + signedQty < 0)) { setErrors({ delta: 'Adjustment cannot reduce stock below zero' }); return }
+    const saved = await mutation.run(result.data, key => inventoryService.adjustStock(result.data, key), true)
+    if (saved) { toast.success(`Stock adjusted to ${saved.resulting_stock} units`); onOpenChange(false) }
   }
 
   const selectedProductObj = products.find((p) => String(p.id) === productId)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={value => { if (!mutation.locked) onOpenChange(value) }}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Stock Adjustment</DialogTitle>
@@ -86,15 +99,11 @@ export function StockAdjustmentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Phase 2 Honest Notice */}
-        <DisconnectedState
-          title="Adjustment Disabled (Phase 3)"
-          description="Stock adjustments and movement logging connect via POST /api/inventory/adjustments in Phase 3."
-          endpoint="POST /api/inventory/adjustments"
-          variant="inline"
-        />
-
-        <form onSubmit={handleValidateOnly} className="space-y-4 py-2">
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          {errors.form && <p role="alert" className="text-sm text-destructive">{errors.form}</p>}
+          {productsError && <p role="alert" className="text-sm text-destructive">{productsError} <Button type="button" variant="link" onClick={onRetryProducts}>Retry products</Button></p>}
+          {productsLoading && <p>Loading products...</p>}
+          <fieldset disabled={mutation.locked} className="space-y-4">
           {/* Product Select */}
           <div className="space-y-1.5">
             <Label htmlFor="adj-product">Product *</Label>
@@ -105,7 +114,7 @@ export function StockAdjustmentDialog({
               <SelectContent>
                 {products.length === 0 ? (
                   <SelectItem value="none" disabled>
-                    Product catalog pending connection
+                    No active products available
                   </SelectItem>
                 ) : (
                   products.map((p) => (
@@ -136,7 +145,7 @@ export function StockAdjustmentDialog({
               <Label htmlFor="adj-direction">Adjustment Type</Label>
               <Select
                 value={direction}
-                onValueChange={(val) => setDirection(val as 'increase' | 'decrease')}
+                onValueChange={(val) => { if (val === 'increase' || val === 'decrease') setDirection(val) }}
               >
                 <SelectTrigger id="adj-direction">
                   <SelectValue />
@@ -158,15 +167,15 @@ export function StockAdjustmentDialog({
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
               />
-              {errors.quantity_change && (
-                <p className="text-xs text-destructive">{errors.quantity_change}</p>
+              {errors.delta && (
+                <p className="text-xs text-destructive">{errors.delta}</p>
               )}
             </div>
           </div>
 
           {/* Reason */}
           <div className="space-y-1.5">
-            <Label htmlFor="adj-reason">Reason for Adjustment</Label>
+            <Label htmlFor="adj-reason">Reason for Adjustment *</Label>
             <Input
               id="adj-reason"
               placeholder="e.g. Physical inventory audit, damaged in transit"
@@ -175,16 +184,17 @@ export function StockAdjustmentDialog({
             />
           </div>
 
+            {errors.reason && <p className="text-xs text-destructive">{errors.reason}</p>}
+          </fieldset>
           <DialogFooter className="mt-4 gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" disabled={mutation.locked} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled
-              title="Mutation disabled in Phase 2. Live API sync connects in Phase 3."
+              disabled={mutation.pending || productsLoading || !!productsError || products.length === 0}
             >
-              Apply Adjustment (Pending Phase 3)
+              {mutation.pending ? 'Applying...' : mutation.uncertain ? 'Retry Same Adjustment' : 'Apply Adjustment'}
             </Button>
           </DialogFooter>
         </form>

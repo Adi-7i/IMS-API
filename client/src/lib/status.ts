@@ -72,3 +72,10 @@ export const MOVEMENT_TYPE_CONFIG: Record<
     sign: '',
   },
 }
+
+export function isOrderStatus(value: string): value is OrderStatus {
+  return ORDER_STATUSES.some(status => status === value)
+}
+export function isMovementType(value: string): value is MovementType {
+  return ['initial', 'sale', 'cancellation_reversal', 'adjustment'].some(type => type === value)
+}

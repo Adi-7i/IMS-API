@@ -32,6 +32,7 @@ export const productQuerySchema = z.object({
   page:        z.coerce.number().int().positive().optional().default(1),
   limit:       z.coerce.number().int().positive().max(100).optional().default(20),
   search:      z.string().optional(),
+  availability: z.enum(['in_stock', 'low_stock', 'out_of_stock']).optional(),
   category_id: z.coerce.number().int().positive().optional(),
   is_active:   z.enum(['true', 'false', '0', '1']).optional(),
   sort_by:     z.enum(['name', 'price_paise', 'stock_quantity', 'created_at']).optional().default('created_at'),

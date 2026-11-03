@@ -38,6 +38,7 @@ export function makeInventoryRepository(db) {
           JOIN categories c ON p.category_id = c.id
          WHERE p.is_active = 1
            AND p.stock_quantity <= p.low_stock_threshold
+           ${opts.include_out_of_stock === false ? 'AND p.stock_quantity > 0' : ''}
       `).get()).count;
 
       const rows = db.prepare(`
@@ -46,6 +47,7 @@ export function makeInventoryRepository(db) {
           JOIN categories c ON p.category_id = c.id
          WHERE p.is_active = 1
            AND p.stock_quantity <= p.low_stock_threshold
+           ${opts.include_out_of_stock === false ? 'AND p.stock_quantity > 0' : ''}
          ORDER BY p.stock_quantity ASC
          LIMIT ? OFFSET ?
       `).all(limit, offset);
@@ -82,9 +84,10 @@ export function makeInventoryRepository(db) {
       ).get(...params)).count;
 
       const rows = /** @type {StockMovementRow[]} */ (db.prepare(`
-        SELECT sm.*, p.name AS product_name, p.sku AS product_sku
+        SELECT sm.*, p.name AS product_name, p.sku AS product_sku, o.order_number
           FROM stock_movements sm
           JOIN products p ON sm.product_id = p.id
+          LEFT JOIN orders o ON sm.order_id = o.id
           ${where}
          ORDER BY sm.created_at ${sortDir}
          LIMIT ? OFFSET ?

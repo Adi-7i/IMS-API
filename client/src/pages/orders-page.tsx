@@ -11,7 +11,7 @@ import { productService } from '@/services/product.service'
 import { useDataState } from '@/hooks/use-data-state'
 import { usePagination } from '@/hooks/use-pagination'
 import { PageHeader } from '@/components/shared/page-header'
-import { DisconnectedState } from '@/components/shared/disconnected-state'
+import { ErrorState } from '@/components/shared/error-state'
 import { EmptyState } from '@/components/shared/empty-state'
 import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
 import { DataTablePagination } from '@/components/shared/data-table-pagination'
@@ -31,11 +31,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Card, CardContent } from '@/components/ui/card'
-import type { OrderListItem, OrderStatus } from '@/types/order'
+import { isOrderStatus } from '@/lib/status'
+import type { OrderListItem } from '@/types/order'
 
 export function OrdersPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
-  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('DESC')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const { page, setPage } = usePagination(1, 20)
 
@@ -45,23 +46,23 @@ export function OrdersPage() {
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
   // Fetch products for order creation dialog dropdown
-  const { data: productData } = useDataState(() => productService.getProducts({ limit: 100 }), [])
-  const products = productData?.data ?? []
+  const { data: products, error: productsError, isLoading: productsLoading, reload: reloadProducts } = useDataState((signal) => productService.getAllActive(signal), [])
 
   // Fetch orders query
   const {
     data: orderData,
     isLoading,
-    isDisconnected,
+    error,
+    isError,
     reload,
   } = useDataState(
-    () =>
+    (signal) =>
       orderService.getOrders({
         page,
         limit: 20,
-        status: selectedStatus !== 'all' ? (selectedStatus as OrderStatus) : undefined,
+        status: isOrderStatus(selectedStatus) ? selectedStatus : undefined,
         sort_dir: sortDir,
-      }),
+      }, signal),
     [page, selectedStatus, sortDir],
   )
 
@@ -99,15 +100,6 @@ export function OrdersPage() {
         }
       />
 
-      {/* Disconnected Architecture Banner */}
-      {isDisconnected && (
-        <DisconnectedState
-          title="Order Service Sync Pending (Phase 3)"
-          description="In accordance with RetailOps Lite requirements, synthetic test transactions are not fabricated. Live order records from GET /api/orders will sync in Phase 3."
-          endpoint="GET /api/orders"
-          variant="inline"
-        />
-      )}
 
       {/* Filters and Controls */}
       <Card>
@@ -136,13 +128,13 @@ export function OrdersPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setSortDir((d) => (d === 'DESC' ? 'ASC' : 'DESC'))
+                setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
                 setPage(1)
               }}
               className="gap-2 text-xs h-9 shrink-0"
             >
               <ArrowUpDown className="h-3.5 w-3.5" />
-              {sortDir === 'DESC' ? 'Newest First' : 'Oldest First'}
+              {sortDir === 'desc' ? 'Newest First' : 'Oldest First'}
             </Button>
           </div>
         </CardContent>
@@ -153,13 +145,8 @@ export function OrdersPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <LoadingSkeleton rows={6} />
-          ) : isDisconnected ? (
-            <DisconnectedState
-              title="Order Records Integration Pending"
-              description="Customer order entries will stream from GET /api/orders upon Phase 3 activation."
-              endpoint="GET /api/orders"
-              variant="table"
-            />
+          ) : isError ? (
+            <ErrorState description={error?.message} onRetry={() => void reload()} />
           ) : orders.length === 0 ? (
             <EmptyState
               title="No orders found"
@@ -186,21 +173,17 @@ export function OrdersPage() {
                     {orders.map((order) => (
                       <TableRow key={order.id}>
                         <TableCell className="font-mono text-xs font-semibold">
-                          #{order.id}
+                          {order.order_number}
                         </TableCell>
                         <TableCell>
                           <div className="font-medium text-foreground">{order.customer_name}</div>
-                          {order.customer_email && (
-                            <div className="text-xs text-muted-foreground">
-                              {order.customer_email}
-                            </div>
-                          )}
+
                         </TableCell>
                         <TableCell>
                           <OrderStatusBadge status={order.status} />
                         </TableCell>
                         <TableCell className="text-right font-semibold font-mono">
-                          {formatPaise(order.total_amount_paise)}
+                          {formatPaise(order.total_paise)}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {formatDateTime(order.created_at)}
@@ -238,7 +221,10 @@ export function OrdersPage() {
       <CreateOrderDialog
         open={isCreateOpen}
         onOpenChange={setIsCreateOpen}
-        products={products}
+        products={products ?? []}
+        productsError={productsError?.message}
+        productsLoading={productsLoading}
+        onRetryProducts={() => void reloadProducts()}
       />
 
       {/* Order Detail Dialog */}

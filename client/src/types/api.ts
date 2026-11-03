@@ -8,7 +8,9 @@ export interface PaginationMeta {
   total: number
   page: number
   limit: number
-  total_pages: number
+  totalPages: number
+  hasNext: boolean
+  hasPrev: boolean
 }
 
 export interface PaginatedResponse<T> {

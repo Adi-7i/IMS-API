@@ -11,6 +11,10 @@ export function makeCategoryService(dbOverride) {
   const repo = makeCategoryRepository(db);
 
   return {
+    /** @param {string} name */
+    createCategory(name) {
+      return repo.create(name);
+    },
     listCategories() {
       return repo.findAll();
     },

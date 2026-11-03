@@ -16,3 +16,11 @@ export function listCategories(req, res, next) {
     next(err);
   }
 }
+
+/** @type {import('express').RequestHandler} */
+export function createCategory(req, res, next) {
+  try {
+    const category = makeCategoryService().createCategory(req.body.name);
+    res.status(201).json(successResponse(category, 'Category created successfully'));
+  } catch (error) { next(error); }
+}

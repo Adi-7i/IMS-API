@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from '@/components/shared/loading-skeleton'
 import { useState } from 'react'
 import {
   Package,
@@ -12,7 +13,7 @@ import { dashboardService } from '@/services/dashboard.service'
 import { useDataState } from '@/hooks/use-data-state'
 import { PageHeader } from '@/components/shared/page-header'
 import { KpiCard } from '@/components/shared/kpi-card'
-import { DisconnectedState } from '@/components/shared/disconnected-state'
+import { ErrorState } from '@/components/shared/error-state'
 import { OrderStatusBadge } from '@/components/shared/status-badge'
 import { formatPaise } from '@/lib/currency'
 import { formatDate } from '@/lib/date'
@@ -43,9 +44,13 @@ export function DashboardPage() {
   const {
     data: summary,
     isLoading,
-    isDisconnected,
+    error,
+    isError,
     reload,
-  } = useDataState(() => dashboardService.getSummary(rangeDays), [rangeDays])
+  } = useDataState((signal) => dashboardService.getSummary(rangeDays, signal), [rangeDays])
+
+  if (isError) return <ErrorState title="Unable to load dashboard" description={error?.message} onRetry={() => void reload()} />
+  if (isLoading) return <LoadingSkeleton rows={6} />
 
   return (
     <div className="space-y-8">
@@ -69,15 +74,6 @@ export function DashboardPage() {
         }
       />
 
-      {/* Disconnected State Architecture Banner */}
-      {isDisconnected && (
-        <DisconnectedState
-          title="Live Dashboard Sync Pending (Phase 3)"
-          description="In accordance with RetailOps Lite architecture, synthetic mock metrics are strictly forbidden. The backend contracts are defined at /api/dashboard/summary, and full live streaming connects in Phase 3."
-          endpoint="GET /api/dashboard/summary"
-          variant="inline"
-        />
-      )}
 
       {/* 4 KPI Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -86,31 +82,27 @@ export function DashboardPage() {
           value={summary?.products?.total_active}
           subtitle="In active catalog"
           icon={<Package className="h-5 w-5" />}
-          isDisconnected={isDisconnected}
           isLoading={isLoading}
         />
         <KpiCard
           title="Low Stock Warnings"
-          value={summary?.inventory?.low_stock_count}
-          subtitle={`${summary?.inventory?.out_of_stock_count ?? 0} out of stock`}
+          value={summary?.products?.low_stock_count}
+          subtitle={`${summary?.products?.out_of_stock_count ?? 0} out of stock`}
           icon={<AlertTriangle className="h-5 w-5 text-amber-500" />}
-          isDisconnected={isDisconnected}
           isLoading={isLoading}
         />
         <KpiCard
-          title="Orders Today"
-          value={summary?.orders?.today_orders}
-          subtitle="Processed today"
+          title="Total Orders"
+          value={summary?.orders?.total_orders}
+          subtitle="Across all statuses"
           icon={<ShoppingCart className="h-5 w-5" />}
-          isDisconnected={isDisconnected}
           isLoading={isLoading}
         />
         <KpiCard
           title="Total Revenue"
-          value={summary?.orders?.total_revenue_paise ? formatPaise(summary.orders.total_revenue_paise) : '₹0.00'}
+          value={summary ? formatPaise(summary.orders.total_revenue_paise) : undefined}
           subtitle="Completed sales"
           icon={<IndianRupee className="h-5 w-5" />}
-          isDisconnected={isDisconnected}
           isLoading={isLoading}
         />
       </div>
@@ -141,14 +133,7 @@ export function DashboardPage() {
             </Tabs>
           </CardHeader>
           <CardContent className="pt-4">
-            {isDisconnected ? (
-              <DisconnectedState
-                title="Sales Trend Data Pending"
-                description={`Awaiting live connection to GET /api/dashboard/summary?days=${rangeDays}. Charts will render automatically once Phase 3 integration is activated.`}
-                endpoint={`GET /api/dashboard/summary?days=${rangeDays}`}
-                variant="table"
-              />
-            ) : summary?.daily_trend && summary.daily_trend.length > 0 ? (
+            {summary?.daily_trend && summary.daily_trend.length > 0 ? (
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={summary.daily_trend}>
@@ -207,17 +192,9 @@ export function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {isDisconnected ? (
-              <DisconnectedState
-                title="Status Breakdown Pending"
-                description="Backend order counts by status (Pending, Confirmed, Completed, Cancelled) will populate upon connection."
-                endpoint="GET /api/dashboard/summary"
-                variant="card"
-              />
-            ) : (
-              <div className="space-y-4">
+            <div className="space-y-4">
                 {(['Pending', 'Confirmed', 'Completed', 'Cancelled'] as const).map((status) => {
-                  const count = summary?.orders?.orders_by_status?.[status] ?? 0
+                  const count = summary?.orders_by_status?.[status] ?? 0
                   return (
                     <div
                       key={status}
@@ -228,8 +205,7 @@ export function DashboardPage() {
                     </div>
                   )
                 })}
-              </div>
-            )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -245,14 +221,7 @@ export function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {isDisconnected ? (
-              <DisconnectedState
-                title="Recent Orders Pending"
-                description="Live customer transactions from /api/orders will appear here."
-                endpoint="GET /api/orders?limit=5"
-                variant="table"
-              />
-            ) : summary?.recent_orders && summary.recent_orders.length > 0 ? (
+            {summary?.recent_orders && summary.recent_orders.length > 0 ? (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -271,7 +240,7 @@ export function DashboardPage() {
                           <OrderStatusBadge status={order.status} />
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {formatPaise(order.total_amount_paise)}
+                          {formatPaise(order.total_paise)}
                         </TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
                           {formatDate(order.created_at)}
@@ -298,14 +267,7 @@ export function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {isDisconnected ? (
-              <DisconnectedState
-                title="Stock Alerts Pending"
-                description="Products requiring replenishment will be flagged here in real-time."
-                endpoint="GET /api/inventory/low-stock"
-                variant="table"
-              />
-            ) : summary?.low_stock_alerts && summary.low_stock_alerts.length > 0 ? (
+            {summary?.low_stock_alerts && summary.low_stock_alerts.length > 0 ? (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>

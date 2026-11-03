@@ -2,9 +2,14 @@ import { useLocation } from 'react-router-dom'
 import { MobileNav } from './mobile-nav'
 import { NAV_ITEMS } from '@/lib/constants'
 import { Badge } from '@/components/ui/badge'
-import { ShieldAlert } from 'lucide-react'
+import { Activity } from 'lucide-react'
+import { useDataState } from '@/hooks/use-data-state'
+import { apiClient } from '@/lib/api-client'
+import { envelope } from '@/lib/api-schemas'
+import { z } from 'zod'
 
 export function AppHeader() {
+  const health = useDataState(signal => apiClient.get('/health', envelope(z.object({ status: z.literal('ok') })), { signal }), [])
   const location = useLocation()
   const currentNav = NAV_ITEMS.find((item) =>
     item.href === '/' ? location.pathname === '/' : location.pathname.startsWith(item.href),
@@ -25,13 +30,15 @@ export function AppHeader() {
       </div>
 
       <div className="flex items-center gap-3">
-        <Badge
+        <button type="button" aria-label="Refresh API connection status" onClick={() => void health.reload()}>
+        <Badge title={health.error?.message}
           variant="outline"
           className="gap-1.5 border-amber-300 bg-amber-50/70 px-2.5 py-1 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
         >
-          <ShieldAlert className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-          <span className="hidden sm:inline">Contract Status:</span> Disconnected
+          <Activity className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+          <span className="hidden sm:inline">API:</span> {health.isLoading ? 'Checking...' : health.isError ? 'Unavailable' : 'Connected'}
         </Badge>
+        </button>
       </div>
     </header>
   )

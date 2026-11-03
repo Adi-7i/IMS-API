@@ -27,6 +27,7 @@
  * @property {number}  limit
  * @property {number}  offset
  * @property {string}  [search]
+ * @property {string}  [availability]
  * @property {number}  [category_id]
  * @property {boolean} [is_active]
  * @property {string}  [sort_by]
@@ -66,6 +67,10 @@ export function makeProductRepository(db) {
         conditions.push(`p.is_active = ?`);
         params.push(opts.is_active ? 1 : 0);
       }
+
+      if (opts.availability === 'in_stock') conditions.push('p.stock_quantity > 0');
+      if (opts.availability === 'low_stock') conditions.push('p.stock_quantity > 0 AND p.stock_quantity <= p.low_stock_threshold');
+      if (opts.availability === 'out_of_stock') conditions.push('p.stock_quantity = 0');
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

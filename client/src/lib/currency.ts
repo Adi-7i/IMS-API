@@ -35,9 +35,10 @@ export function paiseToRupees(paise: number): number {
  * E.g., "599.50" or 599.5 -> 59950
  */
 export function rupeesToPaise(rupees: number | string): number {
-  const numeric = typeof rupees === 'string' ? parseFloat(rupees) : rupees
-  if (isNaN(numeric) || numeric < 0) {
-    return 0
-  }
-  return Math.round(numeric * 100)
+  const value = String(rupees).trim()
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value)) throw new Error('Enter a valid price with at most two decimal places')
+  const [whole, fraction = ''] = value.split('.')
+  const paise = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+  if (!Number.isSafeInteger(paise)) throw new Error('Price is too large')
+  return paise
 }

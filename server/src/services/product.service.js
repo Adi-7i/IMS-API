@@ -31,6 +31,7 @@ export function makeProductService(dbOverride) {
 
       const { rows, total } = products.findAll({
         ...pagination,
+        availability: typeof query.availability === 'string' ? query.availability : undefined,
         search:      typeof query.search === 'string' ? query.search : undefined,
         category_id: query.category_id ? Number(query.category_id) : undefined,
         is_active:   isActive,

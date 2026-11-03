@@ -17,18 +17,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { createProductSchema } from '@/lib/validators'
-import { DisconnectedState } from '@/components/shared/disconnected-state'
+import { createProductSchema, updateProductSchema } from '@/lib/validators'
+import { productService } from '@/services/product.service'
+import { categoryService } from '@/services/category.service'
+import { useMutation } from '@/hooks/use-mutation'
+import { toast } from 'sonner'
 import type { Category } from '@/types/category'
 import type { Product } from '@/types/product'
-import { paiseToRupees } from '@/lib/currency'
+import { paiseToRupees, rupeesToPaise } from '@/lib/currency'
 
 interface ProductFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   product?: Product | null
   categories: Category[]
-  categoriesDisconnected?: boolean
+  categoriesError?: string
+  onRetryCategories: () => void
 }
 
 export function ProductFormDialog({
@@ -36,7 +40,8 @@ export function ProductFormDialog({
   onOpenChange,
   product,
   categories,
-  categoriesDisconnected = false,
+  categoriesError,
+  onRetryCategories,
 }: ProductFormDialogProps) {
   const isEditing = Boolean(product)
 
@@ -44,10 +49,14 @@ export function ProductFormDialog({
   const [sku, setSku] = useState('')
   const [categoryId, setCategoryId] = useState<string>('')
   const [priceRupees, setPriceRupees] = useState<string>('')
-  const [costPriceRupees, setCostPriceRupees] = useState<string>('')
+  const [description, setDescription] = useState('')
+  const [categoryName, setCategoryName] = useState('')
+  const categoryMutation = useMutation()
+  const { setErrors: setCategoryErrors } = categoryMutation
+  const mutation = useMutation()
   const [stockQuantity, setStockQuantity] = useState<string>('0')
-  const [threshold, setThreshold] = useState<string>('10')
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [threshold, setThreshold] = useState<string>('5')
+  const { errors, setErrors } = mutation
 
   useEffect(() => {
     if (product) {
@@ -55,11 +64,7 @@ export function ProductFormDialog({
       setSku(product.sku)
       setCategoryId(String(product.category_id))
       setPriceRupees(String(paiseToRupees(product.price_paise)))
-      setCostPriceRupees(
-        product.cost_price_paise !== null && product.cost_price_paise !== undefined
-          ? String(paiseToRupees(product.cost_price_paise))
-          : '',
-      )
+      setDescription(product.description ?? '')
       setStockQuantity(String(product.stock_quantity))
       setThreshold(String(product.low_stock_threshold))
     } else {
@@ -67,21 +72,23 @@ export function ProductFormDialog({
       setSku('')
       setCategoryId('')
       setPriceRupees('')
-      setCostPriceRupees('')
+      setDescription('')
       setStockQuantity('0')
-      setThreshold('10')
+      setThreshold('5')
     }
     setErrors({})
-  }, [product, open])
+    setCategoryErrors({})
+    setCategoryName('')
+  }, [product, open, setErrors, setCategoryErrors])
 
-  const handleValidateOnly = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const result = createProductSchema.safeParse({
+    const result = (isEditing ? updateProductSchema : createProductSchema).safeParse({
       name,
       sku,
       category_id: Number(categoryId),
-      price_rupees: Number(priceRupees),
-      cost_price_rupees: costPriceRupees ? Number(costPriceRupees) : null,
+      price_rupees: priceRupees,
+      description,
       stock_quantity: Number(stockQuantity),
       low_stock_threshold: Number(threshold),
     })
@@ -93,14 +100,19 @@ export function ProductFormDialog({
         fieldErrors[fieldName] = issue.message
       })
       setErrors(fieldErrors)
-    } else {
-      setErrors({})
+      return
     }
+    const data = { name: name.trim(), category_id: Number(categoryId), description: description.trim() || null,
+      price_paise: rupeesToPaise(priceRupees), low_stock_threshold: Number(threshold) }
+    const saved = await mutation.run(data, () => product
+      ? productService.updateProduct(product.id, data)
+      : productService.createProduct({ ...data, sku: sku.trim(), stock_quantity: Number(stockQuantity) }))
+    if (saved) { toast.success(product ? 'Product updated' : 'Product created'); onOpenChange(false) }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[540px]">
+    <Dialog open={open} onOpenChange={value => { if (!mutation.pending && !categoryMutation.pending) onOpenChange(value) }}>
+      <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit Product' : 'Add New Product'}</DialogTitle>
           <DialogDescription>
@@ -110,15 +122,9 @@ export function ProductFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Phase 2 Honest Notice */}
-        <DisconnectedState
-          title="Creation & Editing Disabled (Phase 3)"
-          description="Form inputs and schema validations are fully operational. Live API mutation is scheduled for Phase 3."
-          endpoint={isEditing ? `PUT /api/products/${product?.id}` : 'POST /api/products'}
-          variant="inline"
-        />
-
-        <form onSubmit={handleValidateOnly} className="space-y-4 py-2">
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          {errors.form && <p role="alert" className="text-sm text-destructive">{errors.form}</p>}
+          <fieldset disabled={mutation.pending || categoryMutation.pending} className="space-y-4">
           {/* Name */}
           <div className="space-y-1.5">
             <Label htmlFor="product-name">Product Name *</Label>
@@ -140,6 +146,7 @@ export function ProductFormDialog({
               <Label htmlFor="product-sku">SKU Code *</Label>
               <Input
                 id="product-sku"
+                disabled={isEditing}
                 placeholder="e.g. AP-TSHIRT-001"
                 value={sku}
                 onChange={(e) => {
@@ -163,17 +170,7 @@ export function ProductFormDialog({
                   <SelectValue placeholder="Select Category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categoriesDisconnected ? (
-                    <SelectItem value="none" disabled>
-                      Categories pending (Phase 3)
-                    </SelectItem>
-                  ) : (
-                    categories.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>
-                        {c.name}
-                      </SelectItem>
-                    ))
-                  )}
+                  {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
               {errors.category_id && (
@@ -182,7 +179,7 @@ export function ProductFormDialog({
             </div>
           </div>
 
-          {/* Price & Cost Price */}
+          {/* Price & Description */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="product-price">Selling Price (₹) *</Label>
@@ -203,21 +200,9 @@ export function ProductFormDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="product-cost-price">Cost Price (₹, optional)</Label>
-              <Input
-                id="product-cost-price"
-                type="number"
-                step="0.01"
-                placeholder="350.00"
-                value={costPriceRupees}
-                onChange={(e) => {
-                  setCostPriceRupees(e.target.value)
-                  setErrors((prev) => ({ ...prev, cost_price_rupees: '' }))
-                }}
-              />
-              {errors.cost_price_rupees && (
-                <p className="text-xs text-destructive">{errors.cost_price_rupees}</p>
-              )}
+              <Label htmlFor="product-description">Description</Label>
+              <Input id="product-description" maxLength={1000} value={description} onChange={e => setDescription(e.target.value)} />
+              {errors.description && <p className="text-xs text-destructive">{errors.description}</p>}
             </div>
           </div>
 
@@ -261,20 +246,34 @@ export function ProductFormDialog({
             </div>
           </div>
 
+          <div className="space-y-2 rounded-md border p-3">
+            {categoriesError && <p role="alert" className="text-xs text-destructive">{categoriesError} <Button type="button" variant="link" onClick={onRetryCategories}>Retry categories</Button></p>}
+            {categories.length === 0 && !categoriesError && <p className="text-xs text-muted-foreground">Create a category to register your first product.</p>}
+            <Label htmlFor="category-name">New category</Label>
+            <div className="flex gap-2">
+              <Input id="category-name" value={categoryName} maxLength={100} onChange={e => setCategoryName(e.target.value)} />
+              <Button type="button" variant="outline" disabled={!categoryName.trim()} onClick={async () => {
+                const category = await categoryMutation.run(categoryName, () => categoryService.createCategory({ name: categoryName.trim() }))
+                if (category) { setCategoryId(String(category.id)); setCategoryName(''); toast.success('Category created') }
+              }}>Add Category</Button>
+            </div>
+            {categoryMutation.errors.form && <p role="alert" className="text-xs text-destructive">{categoryMutation.errors.form}</p>}
+          </div>
+          </fieldset>
           <DialogFooter className="mt-6 gap-2 sm:gap-0">
             <Button
               type="button"
               variant="outline"
+              disabled={mutation.pending || categoryMutation.pending}
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled
-              title="Mutation disabled in Phase 2. Live API sync connects in Phase 3."
+              disabled={mutation.pending || categoryMutation.pending || !!categoriesError || categories.length === 0}
             >
-              {isEditing ? 'Save Changes' : 'Create Product'} (Pending Phase 3)
+              {mutation.pending ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Product'}
             </Button>
           </DialogFooter>
         </form>
